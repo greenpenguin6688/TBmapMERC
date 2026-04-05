@@ -17,8 +17,16 @@ A real-time game map scanning tool built with Python. This project uses OpenCV f
 ## Setup
 
 1. Clone this repository.
-2. Activate your Python virtual environment.
-3. Install the required Python packages:
+2. Create a Python virtual environment:
+   ```bash
+   python -m venv venv
+   ```
+3. Activate your Python virtual environment (Windows PowerShell):
+   ```bash
+   .\venv\Scripts\Activate.ps1
+   ```
+   *(Note: If you get a script execution policy error, you may need to run `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser` first).*
+4. Install the required Python packages:
    ```bash
    pip install -r requirements.txt
    ```
