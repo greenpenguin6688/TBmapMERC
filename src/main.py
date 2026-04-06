@@ -4,6 +4,8 @@ import numpy as np
 import pytesseract
 import pydirectinput
 import time
+import threading
+from flask import Flask, jsonify
 
 # Explicitly set the path to Tesseract (as described in your README)
 pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
@@ -33,33 +35,82 @@ def extract_coordinates(screenshot):
     return text, crop_img
 
 def match_template_on_screen(screenshot, template_path, threshold=0.8):
-    template = cv2.imread(template_path, cv2.IMREAD_UNCHANGED)
+    template = cv2.imread(template_path, cv2.IMREAD_COLOR)  # Force color
     if template is None:
         print(f"Template not found: {template_path}")
         return []
-    result = cv2.matchTemplate(screenshot, template, cv2.TM_CCOEFF_NORMED)
+    # Convert screenshot to BGR if it is BGRA (from mss)
+    if screenshot.shape[2] == 4:
+        screenshot_bgr = cv2.cvtColor(screenshot, cv2.COLOR_BGRA2BGR)
+    else:
+        screenshot_bgr = screenshot
+    result = cv2.matchTemplate(screenshot_bgr, template, cv2.TM_CCOEFF_NORMED)
     locations = np.where(result >= threshold)
     matches = list(zip(*locations[::-1]))  # (x, y) positions
     return matches
 
+def extract_k_value(coords_text):
+    # Extracts the K value from the OCR string
+    import re
+    match = re.search(r'K[:=\s]*([0-9]+)', coords_text)
+    if match:
+        return int(match.group(1))
+    return None
+
+# Flask web server setup
+app = Flask(__name__)
+results = []
+
+@app.route('/')
+def index():
+    return jsonify(results)
+
+def run_server():
+    app.run(port=5000, debug=False, use_reloader=False)
+
+# Spiral clicker generator
+def spiral_moves():
+    # Directions: left, up, right, down
+    directions = [(-1, 0), (0, -1), (1, 0), (0, 1)]
+    x, y = 0, 0
+    step = 1
+    while True:
+        for d in range(4):
+            dx, dy = directions[d]
+            for _ in range(step):
+                x += dx
+                y += dy
+                yield x, y
+            if d % 2 == 1:
+                step += 1
+
 def main():
     print("Welcome to the Map Scanner!")
     print("Automated map scanning started. Press Ctrl+C in the terminal to stop.")
+    # Start Flask server in a background thread
+    threading.Thread(target=run_server, daemon=True).start()
     template_path = "templates/template1.png"  # Change to your actual template filename
     with mss.mss() as sct:
         monitor = sct.monitors[1]
+        # Spiral clicker state
+        spiral = spiral_moves()
+        center_x, center_y = 960, 540
+        move_scale = 100  # pixels per spiral step
         while True:
-            # Step 1: Click to focus/clear
-            pydirectinput.moveTo(960, 540)
+            # Spiral move
+            dx, dy = next(spiral)
+            px = center_x + dx * move_scale
+            py = center_y + dy * move_scale
+            pydirectinput.moveTo(px, py)
             pydirectinput.click()
             time.sleep(0.2)
-            # Step 2: Click and drag to scroll the map
+            # Drag (optional, can be removed if not needed)
             pydirectinput.mouseDown(button='left')
             time.sleep(0.1)
-            pydirectinput.moveRel(300, 0)
+            pydirectinput.moveRel(0, 0)  # No drag, just click
             time.sleep(0.1)
             pydirectinput.mouseUp(button='left')
-            # Step 3: Press ESC to close any popups
+            # Press ESC to close any popups
             time.sleep(0.2)
             pydirectinput.press('esc')
             # Wait for the map to finish scrolling/rendering
@@ -67,14 +118,18 @@ def main():
             # Take screenshot and OCR coordinates
             screenshot = np.array(sct.grab(monitor))
             coords_text, _ = extract_coordinates(screenshot)
-            if coords_text:
-                print(f"Detected Map Coordinates: {coords_text}")
-            # --- Template Matching ---
-            matches = match_template_on_screen(screenshot, template_path, threshold=0.8)
-            if matches:
-                print(f"Template found at: {matches}")
+            k_value = extract_k_value(coords_text)
+            if k_value is not None and 1010 <= k_value <= 1030:
+                matches = match_template_on_screen(screenshot, template_path, threshold=0.8)
+                result = {
+                    'coords_text': coords_text,
+                    'k_value': k_value,
+                    'matches': matches
+                }
+                print(f"[K={k_value}] {coords_text} | Matches: {matches}")
+                results.append(result)
             else:
-                print("Template not found on this screen.")
+                print(f"[K={k_value}] {coords_text} | Skipped (out of range)")
             # Wait a bit before next scroll
             time.sleep(1)
 
