@@ -34,16 +34,30 @@ TEMPLATE_PATH: str     = str(BASE_DIR / "templates" / "exchange_template.png")
 MATCH_THRESHOLD: float = 0.82              # confidence floor (0.0 – 1.0)
 
 # =============================================================================
-# 4.  BOUSTROPHEDON GRID  (serpentine sweep dimensions)
+# 4.  COORDINATE JUMP NAVIGATION
 # =============================================================================
-# The scanner sweeps GRID_COLS columns × GRID_ROWS rows per kingdom.
-# Each step moves the map by one SNAP_STEP in screen-pixels.
-# Tune these so one step ≈ ~80 % of the visible map area (prevents gaps
-# while still being fast).
-GRID_COLS: int    = 20
-GRID_ROWS: int    = 30
-SNAP_STEP_X: int  = 820    # horizontal snap distance (screen-px)
-SNAP_STEP_Y: int  = 620    # vertical   snap distance (screen-px)
+# Instead of drag-scrolling, the scanner uses the in-game coordinate dialog
+# (magnifier button → enter K, X, Y → click Go) to jump to each position.
+#
+# UI positions – set these to where the elements appear on YOUR screen:
+COORD_NAV_BTN:  tuple[int, int] = (50, 50)      # magnifier / "Go to coords" button
+COORD_K_FIELD:  tuple[int, int] = (340, 390)    # K number input field in the dialog
+COORD_X_FIELD:  tuple[int, int] = (480, 390)    # X number input field
+COORD_Y_FIELD:  tuple[int, int] = (620, 390)    # Y number input field
+COORD_GO_BTN:   tuple[int, int] = (490, 430)    # "Go" button in the dialog
+COORD_NAV_DELAY: float = 1.5                    # seconds to wait after each jump
+
+# In-game coordinate sweep range per kingdom.
+# The map origin (0,0) is usually top-left; adjust to your game's layout.
+COORD_X_MIN: int  = 0      # leftmost X coordinate to scan
+COORD_X_MAX: int  = 999    # rightmost X coordinate
+COORD_Y_MIN: int  = 0      # topmost Y coordinate
+COORD_Y_MAX: int  = 999    # bottommost Y coordinate
+
+# How many in-game units one screen covers at your current zoom level.
+# Increase these to skip more tiles per jump (faster but may miss things).
+COORD_STEP_X: int = 100    # in-game X units per horizontal step
+COORD_STEP_Y: int = 100    # in-game Y units per vertical step
 
 # =============================================================================
 # 5.  STATE MANAGEMENT & COOLDOWN
@@ -77,7 +91,7 @@ ALERT_SOUND_PATH: str | None = None      # e.g. str(BASE_DIR / "assets" / "alert
 # =============================================================================
 # 9.  TIMING
 # =============================================================================
-SNAP_SETTLE_DELAY:    float = 0.06    # seconds to wait after each snap move
+SNAP_SETTLE_DELAY:    float = 0.06    # seconds to wait after each snap move (legacy)
 KINGDOM_SWITCH_DELAY: float = 3.0    # seconds to wait for the map to reload
 FRAME_COOLDOWN:       float = 0.0    # extra sleep between frames (0 = max speed)
 

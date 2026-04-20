@@ -1,29 +1,12 @@
 """
 navigator.py
 ============
-Boustrophedon (serpentine) map navigator using discrete "snap" moves.
+Two navigator implementations:
 
-Pattern per kingdom sweep
---------------------------
-    Col 0 : top → bottom   (snap DOWN each row)
-    shift right one column
-    Col 1 : bottom → top   (snap UP each row)
-    shift right one column
-    Col 2 : top → bottom
-    …
-
-"Snap Navigation"
------------------
-Rather than smooth pyautogui drags (which produce many intermediate frames
-and misalign the grid), each move is a single fast drag over a fixed
-screen-pixel distance.  The map moves by exactly one grid step per call,
-keeping frames edge-aligned for reliable template comparison.
-
-    pyautogui drag direction  →  map pan direction
-    drag UP   (dy < 0)        →  map scrolls DOWN  (reveals southern tiles)
-    drag DOWN (dy > 0)        →  map scrolls UP    (reveals northern tiles)
-    drag LEFT (dx < 0)        →  map scrolls RIGHT
-    drag RIGHT(dx > 0)        →  map scrolls LEFT
+1. BoustrophedonNavigator  – legacy drag/snap approach (kept for reference).
+2. CoordNavigator          – uses the in-game coordinate jump dialog
+                             (magnifier → enter K, X, Y → Go) to move the map.
+                             This is more reliable and preferred.
 """
 
 from __future__ import annotations
@@ -32,10 +15,94 @@ import time
 
 import pyautogui
 
-# Safety: moving mouse to top-left corner raises FailSafeException and
-# terminates the script – useful emergency stop.
 pyautogui.FAILSAFE = True
-pyautogui.PAUSE    = 0.0   # disable implicit pauses; we control timing ourselves
+pyautogui.PAUSE    = 0.0   # timing is controlled explicitly here
+
+
+# =============================================================================
+# CoordNavigator  –  jump-based navigation via the in-game coordinate dialog
+# =============================================================================
+
+class CoordNavigator:
+    """Navigate the map by entering exact K/X/Y coordinates into the game UI.
+
+    Performs a boustrophedon (serpentine) sweep over the coordinate grid,
+    jumping to each position via the magnifier coordinate dialog rather than
+    drag-scrolling.
+    """
+
+    def __init__(
+        self,
+        nav_btn:    tuple[int, int],
+        k_field:    tuple[int, int],
+        x_field:    tuple[int, int],
+        y_field:    tuple[int, int],
+        go_btn:     tuple[int, int],
+        x_min:      int,
+        x_max:      int,
+        y_min:      int,
+        y_max:      int,
+        step_x:     int,
+        step_y:     int,
+        jump_delay: float,
+    ):
+        self.nav_btn    = nav_btn
+        self.k_field    = k_field
+        self.x_field    = x_field
+        self.y_field    = y_field
+        self.go_btn     = go_btn
+        self.x_min      = x_min
+        self.x_max      = x_max
+        self.y_min      = y_min
+        self.y_max      = y_max
+        self.step_x     = step_x
+        self.step_y     = step_y
+        self.jump_delay = jump_delay
+
+    def _type_into_field(self, field_pos: tuple[int, int], value: int) -> None:
+        """Click a field, clear it, and type the given integer value."""
+        pyautogui.click(*field_pos)
+        time.sleep(0.1)
+        pyautogui.hotkey("ctrl", "a")
+        time.sleep(0.05)
+        pyautogui.typewrite(str(value), interval=0.05)
+
+    def jump_to(self, kingdom_id: int, x: int, y: int) -> None:
+        """Open the coordinate dialog and jump to (kingdom_id, x, y)."""
+        # 1. Open the dialog
+        pyautogui.click(*self.nav_btn)
+        time.sleep(0.4)
+
+        # 2. Fill in K, X, Y fields
+        self._type_into_field(self.k_field, kingdom_id)
+        self._type_into_field(self.x_field, x)
+        self._type_into_field(self.y_field, y)
+
+        # 3. Click Go
+        pyautogui.click(*self.go_btn)
+        time.sleep(self.jump_delay)
+
+    def full_sweep(self, kingdom_id: int):
+        """Serpentine sweep over the coordinate grid for the given kingdom.
+
+        Yields
+        ------
+        (x, y) : (int, int)
+            The in-game coordinates the map is now centred on.
+        """
+        x_positions = list(range(self.x_min, self.x_max + 1, self.step_x))
+        y_positions = list(range(self.y_min, self.y_max + 1, self.step_y))
+
+        for col_idx, x in enumerate(x_positions):
+            going_down = (col_idx % 2 == 0)
+            ys = y_positions if going_down else list(reversed(y_positions))
+
+            for y in ys:
+                self.jump_to(kingdom_id, x, y)
+                yield x, y
+
+
+
 
 
 class BoustrophedonNavigator:
