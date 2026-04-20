@@ -14,7 +14,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # 1.  KINGDOMS TO SCAN
 # =============================================================================
 # Add / remove Kingdom IDs as needed. The hopper visits them in order.
-KINGDOM_IDS: list[int] = [1001, 1002, 1003, 1004, 1005]
+KINGDOM_IDS: list[int] = [ 1019 ]                    
 
 # =============================================================================
 # 2.  TIER-1  –  HSV Color Thresholding  ("Exchange Purple")
@@ -24,14 +24,14 @@ KINGDOM_IDS: list[int] = [1001, 1002, 1003, 1004, 1005]
 # fainter icons.
 HSV_LOWER = np.array([125, 60,  60],  dtype=np.uint8)
 HSV_UPPER = np.array([155, 255, 255], dtype=np.uint8)
-PURPLE_PIXEL_THRESHOLD: int = 150          # white-pixel count that triggers Tier 2
+PURPLE_PIXEL_THRESHOLD: int = 20           # lowered from 150 since the roof is very small at 25% zoom
 
 # =============================================================================
 # 3.  TIER-2  –  Template Matching
 # =============================================================================
 # Place your exchange icon crop in templates/exchange_template.png.
 TEMPLATE_PATH: str     = str(BASE_DIR / "templates" / "exchange_template.png")
-MATCH_THRESHOLD: float = 0.82              # confidence floor (0.0 – 1.0)
+MATCH_THRESHOLD: float = 0.70              # lowered from 0.82 to be more forgiving
 
 # =============================================================================
 # 4.  COORDINATE JUMP NAVIGATION
@@ -40,19 +40,19 @@ MATCH_THRESHOLD: float = 0.82              # confidence floor (0.0 – 1.0)
 # (magnifier button → enter K, X, Y → click Go) to jump to each position.
 #
 # UI positions – set these to where the elements appear on YOUR screen:
-COORD_NAV_BTN:  tuple[int, int] = (50, 50)      # magnifier / "Go to coords" button
-COORD_K_FIELD:  tuple[int, int] = (340, 390)    # K number input field in the dialog
-COORD_X_FIELD:  tuple[int, int] = (480, 390)    # X number input field
-COORD_Y_FIELD:  tuple[int, int] = (620, 390)    # Y number input field
-COORD_GO_BTN:   tuple[int, int] = (490, 430)    # "Go" button in the dialog
-COORD_NAV_DELAY: float = 1.5                    # seconds to wait after each jump
+COORD_NAV_BTN:  tuple[int, int] = (90, 819)      # magnifier / "Go to coords" button
+COORD_K_FIELD:  tuple[int, int] = (864, 488)    # K number input field in the dialog
+COORD_X_FIELD:  tuple[int, int] = (960, 488)    # X number input field
+COORD_Y_FIELD:  tuple[int, int] = (1071, 488)   # Y number input field
+COORD_GO_BTN:   tuple[int, int] = (963, 525)    # "Go" button in the dialog
+COORD_NAV_DELAY: float = 0.5                  # seconds to wait after each jump
 
 # In-game coordinate sweep range per kingdom.
 # The map origin (0,0) is usually top-left; adjust to your game's layout.
 COORD_X_MIN: int  = 0      # leftmost X coordinate to scan
-COORD_X_MAX: int  = 999    # rightmost X coordinate
+COORD_X_MAX: int  = 1000   # rightmost X coordinate
 COORD_Y_MIN: int  = 0      # topmost Y coordinate
-COORD_Y_MAX: int  = 999    # bottommost Y coordinate
+COORD_Y_MAX: int  = 1000   # bottommost Y coordinate
 
 # How many in-game units one screen covers at your current zoom level.
 # Increase these to skip more tiles per jump (faster but may miss things).

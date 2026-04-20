@@ -60,18 +60,28 @@ class CoordNavigator:
         self.jump_delay = jump_delay
 
     def _type_into_field(self, field_pos: tuple[int, int], value: int) -> None:
-        """Click a field, clear it, and type the given integer value."""
-        pyautogui.click(*field_pos)
+        """Click a field, clear it fully, and type the given integer value."""
+        # Move first to prevent accidental drags
+        pyautogui.moveTo(*field_pos)
+        time.sleep(0.05)
+        # Single click to focus
+        pyautogui.click()
         time.sleep(0.1)
+        # Select all and delete (safe combo for games)
         pyautogui.hotkey("ctrl", "a")
         time.sleep(0.05)
-        pyautogui.typewrite(str(value), interval=0.05)
+        pyautogui.press(["delete", "backspace", "backspace"])
+        time.sleep(0.05)
+        # Type the number slow enough for the game engine to catch it
+        pyautogui.typewrite(str(value), interval=0.06)
 
     def jump_to(self, kingdom_id: int, x: int, y: int) -> None:
         """Open the coordinate dialog and jump to (kingdom_id, x, y)."""
         # 1. Open the dialog
-        pyautogui.click(*self.nav_btn)
-        time.sleep(0.4)
+        pyautogui.moveTo(*self.nav_btn)
+        time.sleep(0.05)
+        pyautogui.click()
+        time.sleep(0.2)  # Give dialog time to animate/open
 
         # 2. Fill in K, X, Y fields
         self._type_into_field(self.k_field, kingdom_id)
@@ -79,27 +89,65 @@ class CoordNavigator:
         self._type_into_field(self.y_field, y)
 
         # 3. Click Go
-        pyautogui.click(*self.go_btn)
+        pyautogui.moveTo(*self.go_btn)
+        time.sleep(0.05)
+        pyautogui.click()
         time.sleep(self.jump_delay)
 
-    def full_sweep(self, kingdom_id: int):
-        """Serpentine sweep over the coordinate grid for the given kingdom.
+        # 4. Press ESC to close any remaining dialog/popup before next action
+        pyautogui.press("escape")
+        time.sleep(0.05)
+
+    def full_sweep(self, kingdom_id: int, initial_delay: float = 0.0):
+        """Spiral sweep from the center outward across the kingdom.
 
         Yields
         ------
         (x, y) : (int, int)
             The in-game coordinates the map is now centred on.
         """
-        x_positions = list(range(self.x_min, self.x_max + 1, self.step_x))
-        y_positions = list(range(self.y_min, self.y_max + 1, self.step_y))
+        # Start exactly at the mathematical center of the boundaries
+        center_x = self.x_min + ((self.x_max - self.x_min) // 2)
+        center_y = self.y_min + ((self.y_max - self.y_min) // 2)
+        
+        x, y = center_x, center_y
+        
+        # Initial jump to center (and switches kingdom!)
+        self.jump_to(kingdom_id, x, y)
+        
+        if initial_delay > 0:
+            print(f"  [Hopper] Waiting {initial_delay}s for new kingdom map to load...")
+            time.sleep(initial_delay)
+            
+        yield x, y
 
-        for col_idx, x in enumerate(x_positions):
-            going_down = (col_idx % 2 == 0)
-            ys = y_positions if going_down else list(reversed(y_positions))
+        # Left (-1, 0), Up (0, -1), Right (1, 0), Down (0, 1)
+        directions = [(-1, 0), (0, -1), (1, 0), (0, 1)]
+        dir_idx = 0
+        steps_in_current_leg = 1
+        
+        max_dist_x = max(abs(self.x_max - center_x), abs(center_x - self.x_min))
+        max_dist_y = max(abs(self.y_max - center_y), abs(center_y - self.y_min))
+        # Add 2 buffer loops to ensure we hit the corners of non-square grids
+        max_loops = max(max_dist_x // self.step_x, max_dist_y // self.step_y) + 2
 
-            for y in ys:
-                self.jump_to(kingdom_id, x, y)
-                yield x, y
+        # A complete spiral sequence
+        for _ in range(max_loops * 2):
+            dx, dy = directions[dir_idx]
+            
+            for _ in range(steps_in_current_leg):
+                x += dx * self.step_x
+                y += dy * self.step_y
+                
+                # Only jump and yield if within bounds
+                if self.x_min <= x <= self.x_max and self.y_min <= y <= self.y_max:
+                    self.jump_to(kingdom_id, x, y)
+                    yield x, y
+            
+            dir_idx = (dir_idx + 1) % 4
+            # Increase step length every 2 turns (e.g. Left 1, Up 1, Right 2, Down 2...)
+            if dir_idx % 2 == 0:
+                steps_in_current_leg += 1
 
 
 

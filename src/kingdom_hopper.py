@@ -51,15 +51,19 @@ class KingdomHopper:
         print(f"  [Hopper] Jumping to Kingdom {kingdom_id} …")
 
         # 1. Open the kingdom navigation dialog
-        pyautogui.click(*self.switch_btn)
+        pyautogui.moveTo(*self.switch_btn)
+        time.sleep(0.05)
+        pyautogui.click()
         time.sleep(0.5)
 
         # 2. Focus the input field and clear any previous value
-        pyautogui.click(*self.input_field)
+        pyautogui.moveTo(*self.input_field)
+        time.sleep(0.05)
+        pyautogui.click()
         time.sleep(0.2)
         pyautogui.hotkey("ctrl", "a")
         time.sleep(0.05)
-        pyautogui.press("delete")
+        pyautogui.press(["delete", "backspace", "backspace"])
         time.sleep(0.05)
 
         # 3. Type the kingdom ID one character at a time (typewrite is reliable
@@ -68,7 +72,9 @@ class KingdomHopper:
         time.sleep(0.1)
 
         # 4. Confirm
-        pyautogui.click(*self.confirm_btn)
+        pyautogui.moveTo(*self.confirm_btn)
+        time.sleep(0.05)
+        pyautogui.click()
 
         # 5. Wait for the map to fully reload before scanning begins
         print(f"  [Hopper] Waiting {self.reload_delay:.1f}s for map reload …")

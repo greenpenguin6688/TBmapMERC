@@ -69,8 +69,11 @@ def _print_header() -> None:
     print("  TBmapMERC  –  Mercenary Exchange Scanner")
     print(line)
     kingdoms = ", ".join(str(k) for k in config.KINGDOM_IDS)
+    x_steps = len(range(config.COORD_X_MIN, config.COORD_X_MAX + 1, config.COORD_STEP_X))
+    y_steps = len(range(config.COORD_Y_MIN, config.COORD_Y_MAX + 1, config.COORD_STEP_Y))
     print(f"  Kingdoms : {kingdoms}")
-    print(f"  Grid     : {config.GRID_COLS} cols × {config.GRID_ROWS} rows")
+    print(f"  Grid     : {x_steps} x-steps × {y_steps} y-steps ({x_steps * y_steps} positions)")
+    print(f"  Step     : X={config.COORD_STEP_X}  Y={config.COORD_STEP_Y}")
     print(f"  Cooldown : {config.COOLDOWN_SECONDS}s")
     print(f"  Template : {config.TEMPLATE_PATH}")
     print(line)
@@ -94,13 +97,6 @@ def main() -> None:
         pixel_threshold = config.PURPLE_PIXEL_THRESHOLD,
         template_path   = config.TEMPLATE_PATH,
         match_threshold = config.MATCH_THRESHOLD,
-    )
-
-    hopper = KingdomHopper(
-        switch_btn   = config.KINGDOM_SWITCH_BTN,
-        input_field  = config.KINGDOM_INPUT_FIELD,
-        confirm_btn  = config.KINGDOM_CONFIRM_BTN,
-        reload_delay = config.KINGDOM_SWITCH_DELAY,
     )
 
     print("\nPress Ctrl+C at any time to stop.")
@@ -138,12 +134,10 @@ def main() -> None:
                   f"{x_steps * y_steps} positions)")
             print(sep)
 
-            hopper.jump_to(kingdom_id)
-
             kingdom_finds = 0
 
             # ── coordinate sweep ──────────────────────────────────────────────
-            for x, y in nav.full_sweep(kingdom_id):
+            for x, y in nav.full_sweep(kingdom_id, initial_delay=config.KINGDOM_SWITCH_DELAY):
                 # ── cooldown gate ─────────────────────────────────────────────
                 if state.is_on_cooldown(kingdom_id, x, y):
                     continue
