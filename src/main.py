@@ -1,128 +1,216 @@
-import cv2
+"""
+main.py
+=======
+TBmapMERC – Total Battle Mercenary Exchange Scanner
+====================================================
+
+Entry point and main orchestration loop.
+
+Usage
+-----
+    cd d:\\projects\\TBmapMERC
+    python src/main.py
+
+The script gives you a 3-second countdown so you can switch focus to the
+game window before automation begins.  Press Ctrl+C at any time to stop
+cleanly.
+
+Module overview
+---------------
+    config.py          – All user-facing parameters (edit this first)
+    scanner.py         – Two-tier colour + template scanner
+    navigator.py       – Boustrophedon (serpentine) snap-jump navigator
+    kingdom_hopper.py  – Automates the in-game "Go to Kingdom" dialog
+    state_manager.py   – JSON-backed cooldown / find log
+    ocr_calibrator.py  – OCR sub-routine for coordinate auto-calibration
+    notifier.py        – Audible alert on confirmed finds
+"""
+
+from __future__ import annotations
+
+import sys
+import time
+from pathlib import Path
+
 import mss
 import numpy as np
-import pytesseract
-import pydirectinput
-import time
-import threading
-from flask import Flask, jsonify
 
-# Explicitly set the path to Tesseract (as described in your README)
-pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+# ── ensure src/ is on the path when running from the project root ─────────────
+_SRC = Path(__file__).resolve().parent
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
 
-# Flask web server setup
-app = Flask(__name__)
-results = []
+import config
+from kingdom_hopper  import KingdomHopper
+from navigator       import BoustrophedonNavigator
+from notifier        import play_alert
+from ocr_calibrator  import format_coords, read_map_coords
+from scanner         import TwoTierScanner
+from state_manager   import StateManager
 
-@app.route('/')
-def index():
-    return jsonify(results)
 
-def run_server():
-    app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
+# ── helpers ───────────────────────────────────────────────────────────────────
 
-# --- Utility Functions ---
-def extract_coordinates(screenshot):
-    height, width, _ = screenshot.shape
-    crop_img = screenshot[height-35:height, 0:160]
-    gray = cv2.cvtColor(crop_img, cv2.COLOR_BGR2GRAY)
-    try:
-        text = pytesseract.image_to_string(gray, config='--psm 7').strip()
-    except pytesseract.pytesseract.TesseractNotFoundError:
-        text = "Tesseract Error: Not installed"
-    return text, crop_img
+def _position_key(kingdom_id: int, col: int, row: int) -> str:
+    return f"K{kingdom_id}_{col}_{row}"
 
-def match_template_on_screen(screenshot, template_path, threshold=0.8):
-    template = cv2.imread(template_path, cv2.IMREAD_COLOR)
-    if template is None:
-        print(f"Template not found: {template_path}")
-        return []
-    if screenshot.shape[2] == 4:
-        screenshot_bgr = cv2.cvtColor(screenshot, cv2.COLOR_BGRA2BGR)
-    else:
-        screenshot_bgr = screenshot
-    result = cv2.matchTemplate(screenshot_bgr, template, cv2.TM_CCOEFF_NORMED)
-    locations = np.where(result >= threshold)
-    matches = list(zip(*locations[::-1]))
-    return matches
 
-def extract_k_value(coords_text):
-    import re
-    match = re.search(r'K[:=\s]*([0-9]+)', coords_text)
-    if match:
-        return int(match.group(1))
-    return None
+def _countdown(seconds: int) -> None:
+    """Give the user time to switch to the game window."""
+    for i in range(seconds, 0, -1):
+        print(f"  Starting in {i}…", end="\r", flush=True)
+        time.sleep(1)
+    print(" " * 30, end="\r")   # clear the countdown line
 
-def screen_spiral_moves(center_x, center_y, screen_width, screen_height, left, right, top, bottom):
-    directions = [(1, 0), (0, 1), (-1, 0), (0, -1)]  # right, down, left, up
-    x, y = center_x, center_y
-    step_w = 600  # Always shift by 100 in x
-    step_h = 600  # Always shift by 100 in y
-    step = 1
-    while True:
-        for d in range(4):
-            dx, dy = directions[d]
-            for _ in range(step):
-                x_new = x + dx * step_w
-                y_new = y + dy * step_h
-                if left < x_new < right and top < y_new < bottom:
-                    yield x, y, dx, dy, step_w, step_h
-                    x, y = x_new, y_new
-            if d % 2 == 1:
-                step += 1
-        # After each full spiral, increase the step size for a true expanding spiral
-        step_w = int(step_w * 1.5)
-        step_h = int(step_h * 1.5 )
 
-# --- Main Loop ---
-def main():
-    print("Welcome to the Map Scanner!")
-    print("Automated map scanning started. Press Ctrl+C in the terminal to stop.")
-    threading.Thread(target=run_server, daemon=True).start()
-    template_path = "../templates/template1.png"
+def _print_header() -> None:
+    line = "=" * 60
+    print(line)
+    print("  TBmapMERC  –  Mercenary Exchange Scanner")
+    print(line)
+    kingdoms = ", ".join(str(k) for k in config.KINGDOM_IDS)
+    print(f"  Kingdoms : {kingdoms}")
+    print(f"  Grid     : {config.GRID_COLS} cols × {config.GRID_ROWS} rows")
+    print(f"  Cooldown : {config.COOLDOWN_SECONDS}s")
+    print(f"  Template : {config.TEMPLATE_PATH}")
+    print(line)
+
+
+# ── main orchestration ────────────────────────────────────────────────────────
+
+def main() -> None:
+    _print_header()
+
+    # ── instantiate all modules ───────────────────────────────────────────────
+    state = StateManager(
+        scan_log_path = config.SCAN_LOG_PATH,
+        find_log_path = config.FIND_LOG_PATH,
+        cooldown      = config.COOLDOWN_SECONDS,
+    )
+
+    scanner = TwoTierScanner(
+        hsv_lower       = config.HSV_LOWER,
+        hsv_upper       = config.HSV_UPPER,
+        pixel_threshold = config.PURPLE_PIXEL_THRESHOLD,
+        template_path   = config.TEMPLATE_PATH,
+        match_threshold = config.MATCH_THRESHOLD,
+    )
+
+    hopper = KingdomHopper(
+        switch_btn   = config.KINGDOM_SWITCH_BTN,
+        input_field  = config.KINGDOM_INPUT_FIELD,
+        confirm_btn  = config.KINGDOM_CONFIRM_BTN,
+        reload_delay = config.KINGDOM_SWITCH_DELAY,
+    )
+
+    print("\nPress Ctrl+C at any time to stop.")
+    _countdown(3)
+
+    total_finds  = 0
+    total_scanned = 0
+
     with mss.mss() as sct:
-        monitor = sct.monitors[1]
-        screen_left, screen_top, screen_width, screen_height = monitor['left'], monitor['top'], monitor['width'], monitor['height']
-        margin = 10
-        left = screen_left + margin
-        right = screen_left + screen_width - margin
-        top = screen_top + margin
-        bottom = screen_top + screen_height - margin
-        center_x = (left + right) // 2
-        center_y = (top + bottom) // 2
-        spiral = screen_spiral_moves(center_x, center_y, screen_width, screen_height, left, right, top, bottom)
-        print("Testing spiral generator...")
-        for _ in range(5):
-            print(next(spiral))
-        print("Starting spiral loop...")
-        while True:
-            print("In spiral loop...")
-            x, y, dx, dy, step_w, step_h = next(spiral)
-            print(f"Moving to: ({x}, {y}), dragging by ({dx * step_w}, {dy * step_h})")
-            pydirectinput.moveTo(x, y, duration=0.01)
-            pydirectinput.mouseDown(button='left')
-            time.sleep(0.005)
-            pydirectinput.moveRel(dx * step_w, dy * step_h, duration=0.01)
-            time.sleep(0.005)
-            pydirectinput.mouseUp(button='left')
-            time.sleep(0.005)
-            pydirectinput.press('esc')
-            time.sleep(0.01)
-            screenshot = np.array(sct.grab(monitor))
-            coords_text, _ = extract_coordinates(screenshot)
-            k_value = extract_k_value(coords_text)
-            if k_value is not None and 1010 <= k_value <= 1030:
-                matches = match_template_on_screen(screenshot, template_path, threshold=0.8)
-                result = {
-                    'coords_text': coords_text,
-                    'k_value': k_value,
-                    'matches': matches
-                }
-                print(f"[K={k_value}] {coords_text} | Matches: {matches}")
-                results.append(result)
-            else:
-                print(f"[K={k_value}] {coords_text} | Skipped (out of range)")
-            time.sleep(0.01)
+        monitor  = sct.monitors[config.MONITOR_INDEX]
+        screen_w = monitor["width"]
+        screen_h = monitor["height"]
+        cx = monitor["left"] + screen_w // 2
+        cy = monitor["top"]  + screen_h // 2
+
+        nav = BoustrophedonNavigator(
+            grid_cols    = config.GRID_COLS,
+            grid_rows    = config.GRID_ROWS,
+            snap_step_x  = config.SNAP_STEP_X,
+            snap_step_y  = config.SNAP_STEP_Y,
+            settle_delay = config.SNAP_SETTLE_DELAY,
+            screen_center= (cx, cy),
+        )
+
+        # ── kingdom loop ──────────────────────────────────────────────────────
+        for kingdom_id in config.KINGDOM_IDS:
+            sep = "─" * 60
+            print(f"\n{sep}")
+            print(f"  KINGDOM {kingdom_id}  "
+                  f"({config.GRID_COLS} × {config.GRID_ROWS} grid, "
+                  f"{config.GRID_COLS * config.GRID_ROWS} positions)")
+            print(sep)
+
+            hopper.jump_to(kingdom_id)
+
+            kingdom_finds = 0
+
+            # ── boustrophedon sweep ───────────────────────────────────────────
+            for col, row in nav.full_sweep():
+                # ── cooldown gate ─────────────────────────────────────────────
+                if state.is_on_cooldown(kingdom_id, col, row):
+                    continue
+
+                # ── dismiss any accidental popups ─────────────────────────────
+                import pyautogui
+                pyautogui.press("escape")
+
+                # ── capture frame ─────────────────────────────────────────────
+                frame = np.array(sct.grab(monitor))
+
+                # ── OCR calibration (every N rows at column 0) ────────────────
+                if col == 0 and row % config.OCR_CALIBRATION_INTERVAL == 0:
+                    kid, mx, my = read_map_coords(
+                        sct, config.COORDS_REGION, config.TESSERACT_PATH
+                    )
+                    print(f"    [OCR] {format_coords(kid, mx, my)}")
+
+                # ── two-tier scan ─────────────────────────────────────────────
+                pos_key = _position_key(kingdom_id, col, row)
+                triggered, matches = scanner.scan(frame, pos_key)
+
+                state.mark_scanned(kingdom_id, col, row)
+                total_scanned += 1
+
+                if not triggered or not matches:
+                    if config.FRAME_COOLDOWN:
+                        time.sleep(config.FRAME_COOLDOWN)
+                    continue
+
+                # ── CONFIRMED FIND ────────────────────────────────────────────
+                kid_ocr, mx_ocr, my_ocr = read_map_coords(
+                    sct, config.COORDS_REGION, config.TESSERACT_PATH
+                )
+                map_str = format_coords(kid_ocr, mx_ocr, my_ocr)
+
+                for match_xy in matches:
+                    state.log_find(kingdom_id, map_str, match_xy)
+                    total_finds  += 1
+                    kingdom_finds += 1
+
+                    print(
+                        f"\n  *** EXCHANGE FOUND ***"
+                        f"  {map_str}"
+                        f"  grid=({col},{row})"
+                        f"  screen={match_xy}"
+                    )
+                    play_alert(config.ALERT_SOUND_PATH)
+
+            print(
+                f"\n  Kingdom {kingdom_id} complete.  "
+                f"Finds this kingdom: {kingdom_finds}"
+            )
+
+    # ── summary ───────────────────────────────────────────────────────────────
+    print(f"\n{'=' * 60}")
+    print(f"  Scan complete.")
+    print(f"  Positions scanned : {total_scanned}")
+    print(f"  Exchanges found   : {total_finds}")
+    print(f"  Find log          : {config.FIND_LOG_PATH}")
+    print(f"  Scan state        : {config.SCAN_LOG_PATH}")
+    print("=" * 60)
+
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n\n  Stopped by user.")
+    except Exception as exc:
+        print(f"\n  [Fatal] {exc}")
+        raise
+
+

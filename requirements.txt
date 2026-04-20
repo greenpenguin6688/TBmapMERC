@@ -1,4 +1,17 @@
+# Core vision
 opencv-python
 mss
 numpy
-pytesseract
+
+# OCR (coordinate calibration)
+pytesseract          # also requires Tesseract-OCR installed: https://github.com/UB-Mannheim/tesseract/wiki
+
+# Input automation
+pyautogui
+
+# Delta detection (perceptual hashing)
+ImageHash
+Pillow
+
+# NOTE: winsound is used for sound alerts on Windows – it is part of the
+# Python standard library and does NOT need to be installed separately.
