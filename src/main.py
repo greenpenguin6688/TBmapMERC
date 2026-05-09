@@ -142,9 +142,6 @@ def main() -> None:
                 if state.is_on_cooldown(kingdom_id, x, y):
                     continue
 
-                # ── capture frame ─────────────────────────────────────────────
-                frame = np.array(sct.grab(monitor))
-
                 # ── OCR calibration (every N y-steps at x_min) ────────────────
                 if x == config.COORD_X_MIN and y % (config.OCR_CALIBRATION_INTERVAL * config.COORD_STEP_Y) == 0:
                     kid, mx, my = read_map_coords(
@@ -152,16 +149,23 @@ def main() -> None:
                     )
                     print(f"    [OCR] {format_coords(kid, mx, my)}")
 
-                # ── two-tier scan ─────────────────────────────────────────────
-                pos_key = _position_key(kingdom_id, x, y)
-                triggered, matches = scanner.scan(frame, pos_key)
+                # ── burst sniff: scan every frame for BURST_SCAN_DURATION ─────
+                # Grabs frames in a tight loop as the map loads, exits early
+                # the moment a confirmed match is found.
+                pos_key  = _position_key(kingdom_id, x, y)
+                triggered = False
+                matches   = []
+                deadline  = time.time() + config.BURST_SCAN_DURATION
+                while time.time() < deadline:
+                    frame = np.array(sct.grab(monitor))
+                    triggered, matches = scanner.scan(frame, pos_key)
+                    if triggered and matches:
+                        break   # found – no need to keep sniffing this position
 
                 state.mark_scanned(kingdom_id, x, y)
                 total_scanned += 1
 
                 if not triggered or not matches:
-                    if config.FRAME_COOLDOWN:
-                        time.sleep(config.FRAME_COOLDOWN)
                     continue
 
                 # ── CONFIRMED FIND ────────────────────────────────────────────

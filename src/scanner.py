@@ -118,13 +118,35 @@ class TwoTierScanner:
     def tier2_template_match(
         self, frame_bgr: np.ndarray
     ) -> list[tuple[int, int]]:
-        """Return a list of (x, y) screen positions where the template matched,
-        or an empty list when confidence is below the threshold.
+        """Return a deduplicated list of (x, y) screen positions where the
+        template matched above the confidence threshold.
+
+        Uses iterative peak suppression (non-maximum suppression) so that one
+        physical exchange icon produces exactly one hit regardless of how many
+        overlapping pixels exceeded the threshold.
         """
-        result    = cv2.matchTemplate(frame_bgr, self._template, cv2.TM_CCOEFF_NORMED)
-        locations = np.where(result >= self.match_threshold)
-        # zip(cols, rows) → (x, y) pairs
-        return list(zip(locations[1].tolist(), locations[0].tolist()))
+        result = cv2.matchTemplate(frame_bgr, self._template, cv2.TM_CCOEFF_NORMED)
+        tmpl_h, tmpl_w = self._template.shape[:2]
+
+        matches: list[tuple[int, int]] = []
+        # Work on a copy so we can zero-out already-claimed regions.
+        result_nms = result.copy()
+
+        while True:
+            _, max_val, _, max_loc = cv2.minMaxLoc(result_nms)
+            if max_val < self.match_threshold:
+                break
+            x, y = max_loc
+            matches.append((x, y))
+            # Suppress the full template footprint around this peak so nearby
+            # overlapping responses don't trigger an additional hit.
+            x1 = max(0, x - tmpl_w // 2)
+            y1 = max(0, y - tmpl_h // 2)
+            x2 = min(result_nms.shape[1], x + tmpl_w)
+            y2 = min(result_nms.shape[0], y + tmpl_h)
+            result_nms[y1:y2, x1:x2] = 0.0
+
+        return matches
 
     # ── combined entry point ──────────────────────────────────────────────────
 

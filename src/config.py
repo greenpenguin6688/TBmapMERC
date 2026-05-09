@@ -14,7 +14,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # 1.  KINGDOMS TO SCAN
 # =============================================================================
 # Add / remove Kingdom IDs as needed. The hopper visits them in order.
-KINGDOM_IDS: list[int] = [ 1019 ]                    
+KINGDOM_IDS: list[int] = [ 1006 ]                    
 
 # =============================================================================
 # 2.  TIER-1  –  HSV Color Thresholding  ("Exchange Purple")
@@ -45,7 +45,7 @@ COORD_K_FIELD:  tuple[int, int] = (864, 488)    # K number input field in the di
 COORD_X_FIELD:  tuple[int, int] = (960, 488)    # X number input field
 COORD_Y_FIELD:  tuple[int, int] = (1071, 488)   # Y number input field
 COORD_GO_BTN:   tuple[int, int] = (963, 525)    # "Go" button in the dialog
-COORD_NAV_DELAY: float = 0.5                  # seconds to wait after each jump
+COORD_NAV_DELAY: float = 0.15                 # seconds to wait after clicking Go (dialog close only)
 
 # In-game coordinate sweep range per kingdom.
 # The map origin (0,0) is usually top-left; adjust to your game's layout.
@@ -56,8 +56,8 @@ COORD_Y_MAX: int  = 1000   # bottommost Y coordinate
 
 # How many in-game units one screen covers at your current zoom level.
 # Increase these to skip more tiles per jump (faster but may miss things).
-COORD_STEP_X: int = 100    # in-game X units per horizontal step
-COORD_STEP_Y: int = 100    # in-game Y units per vertical step
+COORD_STEP_X: int = 40    # in-game X units per horizontal step
+COORD_STEP_Y: int = 40    # in-game Y units per vertical step
 
 # =============================================================================
 # 5.  STATE MANAGEMENT & COOLDOWN
@@ -95,15 +95,20 @@ SNAP_SETTLE_DELAY:    float = 0.06    # seconds to wait after each snap move (le
 KINGDOM_SWITCH_DELAY: float = 3.0    # seconds to wait for the map to reload
 FRAME_COOLDOWN:       float = 0.0    # extra sleep between frames (0 = max speed)
 
+# How long to actively sniff each position after jumping to it.
+# The scanner grabs frames in a tight loop for this many seconds, exiting
+# early the moment a confirmed match is found.  Set this to roughly the
+# time the game takes to finish rendering tiles at your connection speed.
+BURST_SCAN_DURATION: float = 0.8     # seconds to sniff per position
+
 # OCR is called every N rows to keep calibration fresh without hammering CPU.
 OCR_CALIBRATION_INTERVAL: int = 10
 
 # =============================================================================
-# 10.  DISPLAY / INPUT
+# 10.  SCREEN / SYSTEM
 # =============================================================================
-MONITOR_INDEX: int = 1    # 0 = all monitors combined, 1 = primary monitor
+# mss monitor index: 0 = all monitors combined, 1 = primary, 2 = secondary, …
+MONITOR_INDEX: int = 1
 
-# =============================================================================
-# 11.  TESSERACT
-# =============================================================================
+# Absolute path to tesseract.exe on Windows, or None to use PATH.
 TESSERACT_PATH: str = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
